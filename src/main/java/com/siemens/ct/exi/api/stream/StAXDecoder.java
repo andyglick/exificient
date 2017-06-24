@@ -23,6 +23,16 @@
 
 package com.siemens.ct.exi.api.stream;
 
+import com.siemens.ct.exi.EXIBodyDecoder;
+import com.siemens.ct.exi.EXIFactory;
+import com.siemens.ct.exi.EXIStreamDecoder;
+import com.siemens.ct.exi.FidelityOptions;
+import com.siemens.ct.exi.api.AbstractXmlParser;
+import com.siemens.ct.exi.core.container.NamespaceDeclaration;
+import com.siemens.ct.exi.exceptions.EXIException;
+import com.siemens.ct.exi.grammars.event.EventType;
+import com.siemens.ct.exi.helpers.DefaultSchemaIdResolver;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -36,19 +46,6 @@ import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 
-import com.siemens.ct.exi.EXIBodyDecoder;
-import com.siemens.ct.exi.EXIFactory;
-import com.siemens.ct.exi.EXIStreamDecoder;
-import com.siemens.ct.exi.FidelityOptions;
-import com.siemens.ct.exi.context.QNameContext;
-import com.siemens.ct.exi.core.container.DocType;
-import com.siemens.ct.exi.core.container.NamespaceDeclaration;
-import com.siemens.ct.exi.core.container.ProcessingInstruction;
-import com.siemens.ct.exi.exceptions.EXIException;
-import com.siemens.ct.exi.grammars.event.EventType;
-import com.siemens.ct.exi.helpers.DefaultSchemaIdResolver;
-import com.siemens.ct.exi.values.Value;
-
 /**
  * De-Serializes EXI to StAX
  * 
@@ -58,7 +55,8 @@ import com.siemens.ct.exi.values.Value;
  * @version 0.9.7-SNAPSHOT
  */
 
-public class StAXDecoder implements XMLStreamReader
+@SuppressWarnings("WeakerAccess")
+public class StAXDecoder extends AbstractXmlParser implements XMLStreamReader
 //XMLEventReader
 {
 
@@ -70,46 +68,25 @@ public class StAXDecoder implements XMLStreamReader
 
 	protected boolean exiBodyOnly = false;
 
-	protected QNameContext element;
-	protected List<AttributeContainer> attributes;
-	protected Value characters;
-	protected DocType docType;
-	protected char[] entityReference;
-	protected char[] comment;
-	protected ProcessingInstruction processingInstruction;
 	protected boolean namespacePrefixes = false;
-
-	/* current event */
-	protected EventType eventType;
 
 	/* pre-read event, e.g., for attribute count */
 	protected EventType preReadEventType;
 
 	/* namespace context */
 	protected EXINamespaceContext nsContext;
-	
-	static class AttributeContainer {
-		final QNameContext qname;
-		final Value value;
-		final String prefix;
-
-		public AttributeContainer(QNameContext qname, Value value, String prefix) {
-			this.qname = qname;
-			this.value = value;
-			this.prefix = prefix;
-		}
-	}
 
 	public StAXDecoder(EXIFactory noOptionsFactory) throws EXIException {
 		this.noOptionsFactory = noOptionsFactory;
+
 		if(noOptionsFactory.getSchemaIdResolver() == null) {
 			// set default schemaId resolver
 			noOptionsFactory.setSchemaIdResolver(new DefaultSchemaIdResolver());
 		}
+
 		this.exiStream = noOptionsFactory.createEXIStreamDecoder();
 		this.attributes = new ArrayList<AttributeContainer>();
 		this.nsContext = new EXINamespaceContext();
-		
 	}
 	
 	public void setInputStream(InputStream is) throws EXIException, IOException, XMLStreamException {
@@ -121,14 +98,12 @@ public class StAXDecoder implements XMLStreamReader
 		preReadEventType = null;
 		attributes.clear();
 
-		if (noOptionsFactory.getFidelityOptions().isFidelityEnabled(
-				FidelityOptions.FEATURE_PREFIX)) {
+		if (noOptionsFactory.getFidelityOptions().isFidelityEnabled(FidelityOptions.FEATURE_PREFIX)) {
 			namespacePrefixes = true;
 		}
 	}
 
-	protected void parseHeader(InputStream is) throws EXIException,
-			IOException, XMLStreamException {
+	protected void parseHeader(InputStream is) throws EXIException, IOException, XMLStreamException {
 		assert (is != null);
 		assert (exiStream != null);
 
@@ -224,97 +199,6 @@ public class StAXDecoder implements XMLStreamReader
 			throw new XMLStreamException(e);
 		}
 	}
-	
-	String endElementPrefix;
-
-	// without further attribute handling
-	protected EventType decodeEvent(EventType nextEventType)
-			throws EXIException, IOException {
-
-		endElementPrefix = null;
-		
-		switch (nextEventType) {
-		/* DOCUMENT */
-		case START_DOCUMENT:
-			decoder.decodeStartDocument();
-			break;
-		case END_DOCUMENT:
-			decoder.decodeEndDocument();
-			break;
-		/* ATTRIBUTES */
-		case ATTRIBUTE_XSI_NIL:
-			attributes.add(new AttributeContainer(decoder
-					.decodeAttributeXsiNil(), decoder.getAttributeValue(),
-					decoder.getAttributePrefix()));
-			break;
-		case ATTRIBUTE_XSI_TYPE:
-			attributes.add(new AttributeContainer(decoder
-					.decodeAttributeXsiType(), decoder.getAttributeValue(),
-					decoder.getAttributePrefix()));
-			break;
-		case ATTRIBUTE:
-		case ATTRIBUTE_NS:
-		case ATTRIBUTE_GENERIC:
-		case ATTRIBUTE_GENERIC_UNDECLARED:
-		case ATTRIBUTE_INVALID_VALUE:
-		case ATTRIBUTE_ANY_INVALID_VALUE:
-			attributes.add(new AttributeContainer(decoder.decodeAttribute(),
-					decoder.getAttributeValue(), decoder.getAttributePrefix()));
-			break;
-		/* NAMESPACE DECLARATION */
-		case NAMESPACE_DECLARATION:
-			// Note: Prefix declaration etc. is done internally
-			decoder.decodeNamespaceDeclaration();
-			break;
-		/* SELF_CONTAINED */
-		case SELF_CONTAINED:
-			decoder.decodeStartSelfContainedFragment();
-			break;
-		/* ELEMENT CONTENT EVENTS */
-		/* START ELEMENT */
-		case START_ELEMENT:
-		case START_ELEMENT_NS:
-		case START_ELEMENT_GENERIC:
-		case START_ELEMENT_GENERIC_UNDECLARED:
-			element = decoder.decodeStartElement();
-			break;
-		/* END ELEMENT */
-		case END_ELEMENT:
-		case END_ELEMENT_UNDECLARED:
-//			@SuppressWarnings("unused")
-//			List<NamespaceDeclaration> eePrefixes = decoder.getDeclaredPrefixDeclarations();
-//			if (namespacePrefixes) {
-//				// eeQNameAsString = decoder.getElementQNameAsString();
-//			}
-			endElementPrefix = decoder.getElementPrefix();
-			element = decoder.decodeEndElement();
-			break;
-		/* CHARACTERS */
-		case CHARACTERS:
-		case CHARACTERS_GENERIC:
-		case CHARACTERS_GENERIC_UNDECLARED:
-			characters = decoder.decodeCharacters();
-			break;
-		/* MISC */
-		case DOC_TYPE:
-			docType = decoder.decodeDocType();
-			break;
-		case ENTITY_REFERENCE:
-			entityReference = decoder.decodeEntityReference();
-			break;
-		case COMMENT:
-			comment = decoder.decodeComment();
-			break;
-		case PROCESSING_INSTRUCTION:
-			processingInstruction = decoder.decodeProcessingInstruction();
-			break;
-		default:
-			throw new RuntimeException("Unexpected EXI Event '" + eventType
-					+ "' ");
-		}
-
-		return nextEventType;
-	}
 
 	public void close() throws XMLStreamException {
 	}
@@ -327,12 +211,15 @@ public class StAXDecoder implements XMLStreamReader
 		do {
 			et = decoder.next();
 			ev = getEventType(et);
-			if (et == EventType.SELF_CONTAINED || ev == XMLStreamConstants.ATTRIBUTE
-					|| ev == XMLStreamConstants.NAMESPACE) {
+
+			if (et == EventType.SELF_CONTAINED
+        || ev == XMLStreamConstants.ATTRIBUTE
+        || ev == XMLStreamConstants.NAMESPACE) {
 				decodeEvent(et);
 			}	
-		} while (et == EventType.SELF_CONTAINED || ev == XMLStreamConstants.ATTRIBUTE
-				|| ev == XMLStreamConstants.NAMESPACE);
+		} while (et == EventType.SELF_CONTAINED
+      || ev == XMLStreamConstants.ATTRIBUTE
+      || ev == XMLStreamConstants.NAMESPACE);
 
 		this.preReadEventType = et;
 	}
@@ -562,38 +449,6 @@ public class StAXDecoder implements XMLStreamReader
 		default:
 			throw new RuntimeException("Unexpected event, id=" + getEventType());
 		}
-	}
-	
-	private String getDocTypeString() {
-		StringBuilder sb = new StringBuilder();
-		sb.append("<!DOCTYPE ");
-		sb.append(docType.name);
-		
-		if (docType.publicID.length > 0) {
-			sb.append(" PUBLIC ");
-			sb.append('\"');
-			sb.append(docType.publicID);
-			sb.append('\"');
-		}
-		if (docType.systemID.length > 0) {
-			if (docType.publicID.length == 0) {
-				sb.append(" SYSTEM ");	
-			} else {
-				sb.append(' ');
-			}
-			sb.append('\"');
-			sb.append(docType.systemID);
-			sb.append('\"');
-		}
-		if (docType.text.length > 0) {
-			sb.append(' ');
-			sb.append('[');
-			sb.append(docType.text);
-			sb.append(']');			
-		}
-		sb.append('>');
-
-		return sb.toString();
 	}
 
 	public char[] getTextCharacters() {
@@ -825,64 +680,53 @@ public class StAXDecoder implements XMLStreamReader
 
 		int eventType = getEventType();
 
-		if (eventType == type) {
-			switch (eventType) {
-			case XMLStreamConstants.START_ELEMENT:
-				if (namespaceURI != null) {
-					if (!this.element.getNamespaceUri().equals(namespaceURI)) {
-						throw new XMLStreamException();
-					}
-				}
-				if (localName != null) {
-					if (!this.element.getLocalName().equals(localName)) {
-						throw new XMLStreamException();
-					}
-				}
-				break;
-			case XMLStreamConstants.ATTRIBUTE:
-				// TODO which attribute?
-				throw new XMLStreamException();
-			}
-		} else {
-			throw new XMLStreamException();
-		}
-
-	}
+    if (eventType == type) {
+      if (eventType == XMLStreamConstants.START_ELEMENT) {
+        if (namespaceURI != null && !namespaceURI.equals(this.element.getNamespaceUri())
+          || localName != null && !localName.equals(this.element.getLocalName())) {
+          throw new XMLStreamException();
+        }
+      } else if (eventType == XMLStreamConstants.ATTRIBUTE) {
+        throw new XMLStreamException();
+      }
+    } else {
+      throw new XMLStreamException();
+    }
+  }
 
 	public boolean standaloneSet() {
 		return false;
 	}
-	
-	
+
 	class EXINamespaceContext implements NamespaceContext {
 
-		List<NamespaceDeclaration> _nsDecls;
+		List<NamespaceDeclaration> nsDecls;
 
 		protected void setNamespaceDeclarations(List<NamespaceDeclaration> nsDecls) {
-			_nsDecls = nsDecls;
+			this.nsDecls = nsDecls;
 		}
 
 		public String getNamespaceURI(String prefix) {
-			if (_nsDecls != null) {
-				for (int i = 0; i < _nsDecls.size(); i++) {
-					NamespaceDeclaration nsDecl = _nsDecls.get(i);
-					if (nsDecl.prefix.equals(prefix)) {
-						return nsDecl.namespaceURI;
-					}
-				}
+			if (nsDecls != null) {
+        for (NamespaceDeclaration nsDecl : nsDecls) {
+          if (nsDecl.prefix.equals(prefix))
+          {
+            return nsDecl.namespaceURI;
+          }
+        }
 			}
 
 			return null;
 		}
 
 		public String getPrefix(String namespaceURI) {
-			if (_nsDecls != null) {
-				for (int i = 0; i < _nsDecls.size(); i++) {
-					NamespaceDeclaration nsDecl = _nsDecls.get(i);
-					if (nsDecl.namespaceURI.equals(namespaceURI)) {
-						return nsDecl.prefix;
-					}
-				}
+			if (nsDecls != null) {
+        for (NamespaceDeclaration nsDecl : nsDecls) {
+          if (nsDecl.namespaceURI.equals(namespaceURI))
+          {
+            return nsDecl.prefix;
+          }
+        }
 			}
 
 			return null;
@@ -891,18 +735,17 @@ public class StAXDecoder implements XMLStreamReader
 		@SuppressWarnings("rawtypes")
 		public Iterator getPrefixes(String namespaceURI) {
 			List<String> prefixes = new ArrayList<String>();
-			if (_nsDecls != null) {
-				for (int i = 0; i < _nsDecls.size(); i++) {
-					NamespaceDeclaration nsDecl = _nsDecls.get(i);
-					if (nsDecl.namespaceURI.equals(namespaceURI)) {
-						prefixes.add(nsDecl.prefix);
-					}
-				}
+
+			if (nsDecls != null) {
+        for (NamespaceDeclaration nsDecl : nsDecls) {
+          if (nsDecl.namespaceURI.equals(namespaceURI))
+          {
+            prefixes.add(nsDecl.prefix);
+          }
+        }
 			}
 
 			return prefixes.iterator();
 		}
-
 	}
-
 }

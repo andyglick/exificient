@@ -31,30 +31,28 @@ package com.siemens.ct.exi.api.xmlpull;
  * @version 0.9.7-SNAPSHOT
  */
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.Reader;
-import java.util.ArrayList;
-import java.util.List;
-
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
 import com.siemens.ct.exi.EXIBodyDecoder;
 import com.siemens.ct.exi.EXIFactory;
 import com.siemens.ct.exi.EXIStreamDecoder;
-import com.siemens.ct.exi.context.QNameContext;
-import com.siemens.ct.exi.core.container.DocType;
+import com.siemens.ct.exi.api.AbstractXmlParser;
 import com.siemens.ct.exi.core.container.NamespaceDeclaration;
-import com.siemens.ct.exi.core.container.ProcessingInstruction;
 import com.siemens.ct.exi.exceptions.EXIException;
 import com.siemens.ct.exi.grammars.event.EventType;
-import com.siemens.ct.exi.values.Value;
 
-public class EXIPullParser implements XmlPullParser {
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
+import java.util.ArrayList;
+import java.util.List;
 
-	final protected EXIFactory factory;
-	final protected EXIStreamDecoder exiStream;
+@SuppressWarnings("WeakerAccess")
+public class EXIPullParser extends AbstractXmlParser implements XmlPullParser {
+
+  protected final EXIFactory factory;
+  protected final EXIStreamDecoder exiStream;
 	
 	protected EXIBodyDecoder decoder;
 	
@@ -63,28 +61,7 @@ public class EXIPullParser implements XmlPullParser {
 	
 	/* pre-read event, e.g., for attribute count */
 	protected EventType preReadEventType;
-	
-	protected QNameContext element;
-	protected List<AttributeContainer> attributes;
-	protected Value characters;
-	protected DocType docType;
-	protected char[] entityReference;
-	protected char[] comment;
-	protected ProcessingInstruction processingInstruction;
-	
-	static class AttributeContainer {
-		final QNameContext qname;
-		final Value value;
-		final String prefix;
 
-		public AttributeContainer(QNameContext qname, Value value, String prefix) {
-			this.qname = qname;
-			this.value = value;
-			this.prefix = prefix;
-		}
-	}
-	
-	
 	public EXIPullParser(EXIFactory factory) throws EXIException {
 		this.factory = factory;
 		
@@ -128,8 +105,7 @@ public class EXIPullParser implements XmlPullParser {
 		}
 	}
 	
-	protected void parseHeader(InputStream is) throws EXIException,
-	IOException {
+	protected void parseHeader(InputStream is) throws EXIException, IOException {
 		assert (is != null);
 		assert (exiStream != null);
 		
@@ -157,9 +133,9 @@ public class EXIPullParser implements XmlPullParser {
 		return null;  // unknown 
 	}
 
-	public void defineEntityReplacementText(String entityName,
-			String replacementText) throws XmlPullParserException {
-	}
+	public void defineEntityReplacementText(String entityName, String replacementText) throws XmlPullParserException {
+	  // didn't implement
+  }
 
 	public int getNamespaceCount(int depth) throws XmlPullParserException {
 		// TODO take into account depth
@@ -254,38 +230,6 @@ public class EXIPullParser implements XmlPullParser {
 			throw new RuntimeException("Unexpected text, error=" + e.getMessage());
 		}
 	}
-	
-	private String getDocTypeString() {
-		StringBuilder sb = new StringBuilder();
-		sb.append("<!DOCTYPE ");
-		sb.append(docType.name);
-		
-		if (docType.publicID.length > 0) {
-			sb.append(" PUBLIC ");
-			sb.append('\"');
-			sb.append(docType.publicID);
-			sb.append('\"');
-		}
-		if (docType.systemID.length > 0) {
-			if (docType.publicID.length == 0) {
-				sb.append(" SYSTEM ");	
-			} else {
-				sb.append(' ');
-			}
-			sb.append('\"');
-			sb.append(docType.systemID);
-			sb.append('\"');
-		}
-		if (docType.text.length > 0) {
-			sb.append(' ');
-			sb.append('[');
-			sb.append(docType.text);
-			sb.append(']');			
-		}
-		sb.append('>');
-
-		return sb.toString();
-	}
 
 	public char[] getTextCharacters(int[] holderForStartAndLength) {
 		char[] ch = getText().toCharArray();
@@ -379,18 +323,21 @@ public class EXIPullParser implements XmlPullParser {
 	}
 
 	public String getAttributeValue(String namespace, String name) {
+
+	  String localNamespace = namespace;
+
 		if(name == null) {
 			return null;
+		} else if(localNamespace == null) {
+      localNamespace = "";
 		}
-		if(namespace == null) {
-			namespace = "";
-		}
-		
-		for(int i=0;i<attributes.size(); i++) {
-			if(attributes.get(i).qname.getNamespaceUri().equals(namespace) && attributes.get(i).qname.getLocalName().equals(name) ) {
-				return attributes.get(i).value.toString();
-			}
-		}
+
+    for (AttributeContainer attribute : attributes) {
+      if (attribute.qname.getNamespaceUri().equals(localNamespace) && attribute.qname.getLocalName().equals(name))
+      {
+        return attribute.value.toString();
+      }
+    }
 		
 		return null;
 	}
@@ -450,97 +397,98 @@ public class EXIPullParser implements XmlPullParser {
 	public int next() throws XmlPullParserException, IOException {
 		return this.nextToken();
 	}
-	
-	String endElementPrefix;
-	
-	// without further attribute handling
-	protected EventType decodeEvent(EventType nextEventType)
-			throws EXIException, IOException {
 
-		endElementPrefix = null;
-		
-		switch (nextEventType) {
-		/* DOCUMENT */
-		case START_DOCUMENT:
-			decoder.decodeStartDocument();
-			break;
-		case END_DOCUMENT:
-			decoder.decodeEndDocument();
-			break;
-		/* ATTRIBUTES */
-		case ATTRIBUTE_XSI_NIL:
-			attributes.add(new AttributeContainer(decoder
-					.decodeAttributeXsiNil(), decoder.getAttributeValue(),
-					decoder.getAttributePrefix()));
-			break;
-		case ATTRIBUTE_XSI_TYPE:
-			attributes.add(new AttributeContainer(decoder
-					.decodeAttributeXsiType(), decoder.getAttributeValue(),
-					decoder.getAttributePrefix()));
-			break;
-		case ATTRIBUTE:
-		case ATTRIBUTE_NS:
-		case ATTRIBUTE_GENERIC:
-		case ATTRIBUTE_GENERIC_UNDECLARED:
-		case ATTRIBUTE_INVALID_VALUE:
-		case ATTRIBUTE_ANY_INVALID_VALUE:
-			attributes.add(new AttributeContainer(decoder.decodeAttribute(),
-					decoder.getAttributeValue(), decoder.getAttributePrefix()));
-			break;
-		/* NAMESPACE DECLARATION */
-		case NAMESPACE_DECLARATION:
-			// Note: Prefix declaration etc. is done internally
-			decoder.decodeNamespaceDeclaration();
-			break;
-		/* SELF_CONTAINED */
-		case SELF_CONTAINED:
-			decoder.decodeStartSelfContainedFragment();
-			break;
-		/* ELEMENT CONTENT EVENTS */
-		/* START ELEMENT */
-		case START_ELEMENT:
-		case START_ELEMENT_NS:
-		case START_ELEMENT_GENERIC:
-		case START_ELEMENT_GENERIC_UNDECLARED:
-			element = decoder.decodeStartElement();
-			break;
-		/* END ELEMENT */
-		case END_ELEMENT:
-		case END_ELEMENT_UNDECLARED:
-//			@SuppressWarnings("unused")
-//			List<NamespaceDeclaration> eePrefixes = decoder.getDeclaredPrefixDeclarations();
-//			if (namespacePrefixes) {
-//				// eeQNameAsString = decoder.getElementQNameAsString();
-//			}
-			endElementPrefix = decoder.getElementPrefix();
-			element = decoder.decodeEndElement();
-			break;
-		/* CHARACTERS */
-		case CHARACTERS:
-		case CHARACTERS_GENERIC:
-		case CHARACTERS_GENERIC_UNDECLARED:
-			characters = decoder.decodeCharacters();
-			break;
-		/* MISC */
-		case DOC_TYPE:
-			docType = decoder.decodeDocType();
-			break;
-		case ENTITY_REFERENCE:
-			entityReference = decoder.decodeEntityReference();
-			break;
-		case COMMENT:
-			comment = decoder.decodeComment();
-			break;
-		case PROCESSING_INSTRUCTION:
-			processingInstruction = decoder.decodeProcessingInstruction();
-			break;
-		default:
-			throw new RuntimeException("Unexpected EXI Event '" + eventType
-					+ "' ");
-		}
 
-		return nextEventType;
-	}
+//	String endElementPrefix;
+//
+//	// without further attribute handling
+//	protected EventType decodeEvent(EventType nextEventType)
+//			throws EXIException, IOException {
+//
+//		endElementPrefix = null;
+//
+//		switch (nextEventType) {
+//		/* DOCUMENT */
+//		case START_DOCUMENT:
+//			decoder.decodeStartDocument();
+//			break;
+//		case END_DOCUMENT:
+//			decoder.decodeEndDocument();
+//			break;
+//		/* ATTRIBUTES */
+//		case ATTRIBUTE_XSI_NIL:
+//			attributes.add(new AttributeContainer(decoder
+//					.decodeAttributeXsiNil(), decoder.getAttributeValue(),
+//					decoder.getAttributePrefix()));
+//			break;
+//		case ATTRIBUTE_XSI_TYPE:
+//			attributes.add(new AttributeContainer(decoder
+//					.decodeAttributeXsiType(), decoder.getAttributeValue(),
+//					decoder.getAttributePrefix()));
+//			break;
+//		case ATTRIBUTE:
+//		case ATTRIBUTE_NS:
+//		case ATTRIBUTE_GENERIC:
+//		case ATTRIBUTE_GENERIC_UNDECLARED:
+//		case ATTRIBUTE_INVALID_VALUE:
+//		case ATTRIBUTE_ANY_INVALID_VALUE:
+//			attributes.add(new AttributeContainer(decoder.decodeAttribute(),
+//					decoder.getAttributeValue(), decoder.getAttributePrefix()));
+//			break;
+//		/* NAMESPACE DECLARATION */
+//		case NAMESPACE_DECLARATION:
+//			// Note: Prefix declaration etc. is done internally
+//			decoder.decodeNamespaceDeclaration();
+//			break;
+//		/* SELF_CONTAINED */
+//		case SELF_CONTAINED:
+//			decoder.decodeStartSelfContainedFragment();
+//			break;
+//		/* ELEMENT CONTENT EVENTS */
+//		/* START ELEMENT */
+//		case START_ELEMENT:
+//		case START_ELEMENT_NS:
+//		case START_ELEMENT_GENERIC:
+//		case START_ELEMENT_GENERIC_UNDECLARED:
+//			element = decoder.decodeStartElement();
+//			break;
+//		/* END ELEMENT */
+//		case END_ELEMENT:
+//		case END_ELEMENT_UNDECLARED:
+////			@SuppressWarnings("unused")
+////			List<NamespaceDeclaration> eePrefixes = decoder.getDeclaredPrefixDeclarations();
+////			if (namespacePrefixes) {
+////				// eeQNameAsString = decoder.getElementQNameAsString();
+////			}
+//			endElementPrefix = decoder.getElementPrefix();
+//			element = decoder.decodeEndElement();
+//			break;
+//		/* CHARACTERS */
+//		case CHARACTERS:
+//		case CHARACTERS_GENERIC:
+//		case CHARACTERS_GENERIC_UNDECLARED:
+//			characters = decoder.decodeCharacters();
+//			break;
+//		/* MISC */
+//		case DOC_TYPE:
+//			docType = decoder.decodeDocType();
+//			break;
+//		case ENTITY_REFERENCE:
+//			entityReference = decoder.decodeEntityReference();
+//			break;
+//		case COMMENT:
+//			comment = decoder.decodeComment();
+//			break;
+//		case PROCESSING_INSTRUCTION:
+//			processingInstruction = decoder.decodeProcessingInstruction();
+//			break;
+//		default:
+//			throw new RuntimeException("Unexpected EXI Event '" + eventType
+//					+ "' ");
+//		}
+//
+//		return nextEventType;
+//	}
 	
 	protected void handleAttributes() throws EXIException, IOException, XmlPullParserException {
 		assert (getEventType() == XmlPullParser.START_TAG);
