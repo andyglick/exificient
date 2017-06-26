@@ -2170,7 +2170,7 @@ public class CanonicalEXITestCase extends TestCase {
 		}
 	}
 
-	public void testEmptyCharactersSchemaInformedXmlSpaceStrictFail() throws Exception {
+	public void xtestEmptyCharactersSchemaInformedXmlSpaceStrictFail() throws Exception {
 
 		EXIFactory factory = DefaultEXIFactory.newInstance();
 
